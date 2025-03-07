@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentiment Tracker</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fas fa-chart-line text-2xl"></i>
+                <h1 class="text-xl font-bold">Crypto Sentiment Tracker</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span id="status-indicator" class="flex items-center">
+                    <span class="h-3 w-3 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                    <span>Live</span>
+                </span>
+                <button id="refresh-btn" class="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-sm">
+                    <i class="fas fa-sync-alt mr-1"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-4 py-6">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-gray-500 text-sm">Average Sentiment</h3>
+                    <i class="fas fa-smile text-blue-500"></i>
+                </div>
+                <div class="flex items-end mt-2">
+                    <p id="avg-sentiment" class="text-2xl font-bold">0.00</p>
+                    <span id="avg-indicator" class="ml-2 text-sm"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div id="avg-bar" class="bg-blue-500 h-2 rounded-full" style="width: 50%"></div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-gray-500 text-sm">Total Messages</h3>
+                    <i class="fas fa-comment-dots text-purple-500"></i>
+                </div>
+                <p id="total-messages" class="text-2xl font-bold mt-2">0</p>
+                <div class="flex text-sm mt-1">
+                    <div class="flex items-center mr-3">
+                        <span class="h-3 w-3 rounded-full bg-blue-400 mr-1"></span>
+                        <span id="telegram-count">0 Telegram</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="h-3 w-3 rounded-full bg-purple-400 mr-1"></span>
+                        <span id="discord-count">0 Discord</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-gray-500 text-sm">Sentiment Range</h3>
+                    <i class="fas fa-chart-bar text-indigo-500"></i>
+                </div>
+                <div class="flex justify-between items-end mt-2">
+                    <div>
+                        <p class="text-xs text-gray-500">Min</p>
+                        <p id="min-sentiment" class="text-lg font-bold">0.00</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500">Max</p>
+                        <p id="max-sentiment" class="text-lg font-bold">0.00</p>
+                    </div>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2 overflow-hidden">
+                    <div id="range-bar" class="bg-indigo-300 h-2" style="width: 70%; margin-left: 15%"></div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-gray-500 text-sm">Current Trend</h3>
+                    <i class="fas fa-trending-up text-green-500"></i>
+                </div>
+                <div class="flex items-end mt-2">
+                    <p id="trend-value" class="text-2xl font-bold">Neutral</p>
+                    <span id="trend-indicator" class="ml-2 text-sm"></span>
+                </div>
+                <p id="last-updated" class="text-xs text-gray-500 mt-1">Last updated: Just now</p>
+            </div>
+        </div>
+        
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div class="bg-white rounded-lg shadow p-4 lg:col-span-2">
+                <h3 class="font-semibold mb-4">Sentiment Trend (24 Hours)</h3>
+                <div class="h-64">
+                    <canvas id="sentiment-chart"></canvas>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="font-semibold mb-4">Message Volume</h3>
+                <div class="h-64">
+                    <canvas id="volume-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Messages Section -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="font-semibold">Recent Messages</h3>
+                <div class="flex space-x-2">
+                    <select id="platform-filter" class="text-sm border rounded p-1">
+                        <option value="">All Platforms</option>
+                        <option value="Telegram">Telegram</option>
+                        <option value="Discord">Discord</option>
+                    </select>
+                    <select id="sentiment-filter" class="text-sm border rounded p-1">
+                        <option value="">All Sentiment</option>
+                        <option value="positive">Positive</option>
+                        <option value="neutral">Neutral</option>
+                        <option value="negative">Negative</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="messages-container" class="divide-y max-h-96 overflow-y-auto">
+                <!-- Messages will be populated here -->
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-spinner fa-spin mr-2"></i> Loading messages...
+                </div>
+            </div>
+            
+            <div class="p-3 bg-gray-50 border-t flex justify-between items-center">
+                <span id="showing-info" class="text-sm text-gray-500">Showing 0 of 0 messages</span>
+                <div class="flex space-x-1">
+                    <button id="prev-page" class="px-3 py-1 border rounded text-sm bg-white" disabled>
+                        Previous
+                    </button>
+                    <button id="next-page" class="px-3 py-1 border rounded text-sm bg-white" disabled>
+                        Next
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-gray-800 text-white text-center p-4 mt-6">
+        <p>Crypto Sentiment Tracker &copy; 2025</p>
+    </footer>
+
+    <script>
+        // Connect to WebSocket
+        const socket = io();
+        let sentimentChart, volumeChart;
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentFilters = { platform: '', sentiment: '' };
+        
+        // Initialize charts
+        function initCharts() {
+            // Sentiment Trend Chart
+            const sentimentCtx = document.getElementById('sentiment-chart').getContext('2d');
+            sentimentChart = new Chart(sentimentCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Average Sentiment',
+                        data: [],
+                        borderColor: 'rgba(59, 130, 246, 0.8)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: -1,
+                            max: 1,
+                            ticks: {
+                                callback: value => value.toFixed(2)
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Volume Chart
+            const volumeCtx = document.getElementById('volume-chart').getContext('2d');
+            volumeChart = new Chart(volumeCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Message Count',
+                        data: [],
+                        backgroundColor: 'rgba(139, 92, 246, 0.7)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Format sentiment for display
+        function formatSentiment(value) {
+            if (!value && value !== 0) return '0.00';
+            const val = parseFloat(value).toFixed(2);
+            return val > 0 ? `+${val}` : val;
+        }
+        
+        // Update stats cards
+        function updateStats(stats) {
+            if (!stats) return;
+            
+            const avgSentiment = stats.avgSentiment || 0;
+            document.getElementById('avg-sentiment').textContent = formatSentiment(avgSentiment);
+            
+            // Update average sentiment indicator
+            const avgIndicator = document.getElementById('avg-indicator');
+            if (avgSentiment > 0.2) {
+                avgIndicator.textContent = '▲';
+                avgIndicator.className = 'ml-2 text-sm text-green-500';
+            } else if (avgSentiment < -0.2) {
+                avgIndicator.textContent = '▼';
+                avgIndicator.className = 'ml-2 text-sm text-red-500';
+            } else {
+                avgIndicator.textContent = '▬';
+                avgIndicator.className = 'ml-2 text-sm text-gray-500';
+            }
+            
+            // Update sentiment bar
+            const avgBar = document.getElementById('avg-bar');
+            const barPosition = ((avgSentiment + 1) / 2) * 100; // Map from -1,1 to 0%,100%
+            avgBar.style.width = `${barPosition}%`;
+            if (avgSentiment > 0.2) {
+                avgBar.className = 'bg-green-500 h-2 rounded-full';
+            } else if (avgSentiment < -0.2) {
+                avgBar.className = 'bg-red-500 h-2 rounded-full';
+            } else {
+                avgBar.className = 'bg-blue-500 h-2 rounded-full';
+            }
+            
+            // Update total messages
+            document.getElementById('total-messages').textContent = stats.totalMessages.toLocaleString();
+            document.getElementById('telegram-count').textContent = `${stats.telegramCount.toLocaleString()} Telegram`;
+            document.getElementById('discord-count').textContent = `${stats.discordCount.toLocaleString()} Discord`;
+            
+            // Update sentiment range
+            document.getElementById('min-sentiment').textContent = formatSentiment(stats.minSentiment);
+            document.getElementById('max-sentiment').textContent = formatSentiment(stats.maxSentiment);
+            
+            // Update range bar
+            const rangeBar = document.getElementById('range-bar');
+            const rangeWidth = ((stats.maxSentiment - stats.minSentiment) / 2) * 100;
+            const rangeCenter = ((stats.minSentiment + stats.maxSentiment) / 2);
+            const rangePosition = ((rangeCenter + 1) / 2) * 100 - (rangeWidth / 2);
+            
+            rangeBar.style.width = `${Math.max(5, rangeWidth)}%`;
+            rangeBar.style.marginLeft = `${Math.max(0, Math.min(95, rangePosition))}%`;
+            
+            // Update trend value based on recent sentiment
+            const trendValue = document.getElementById('trend-value');
+            const trendIndicator = document.getElementById('trend-indicator');
+            
+            if (avgSentiment > 0.2) {
+                trendValue.textContent = 'Bullish';
+                trendValue.className = 'text-2xl font-bold text-green-600';
+                trendIndicator.innerHTML = '<i class="fas fa-arrow-up"></i>';
+                trendIndicator.className = 'ml-2 text-sm text-green-500';
+            } else if (avgSentiment < -0.2) {
+                trendValue.textContent = 'Bearish';
+                trendValue.className = 'text-2xl font-bold text-red-600';
+                trendIndicator.innerHTML = '<i class="fas fa-arrow-down"></i>';
+                trendIndicator.className = 'ml-2 text-sm text-red-500';
+            } else {
+                trendValue.textContent = 'Neutral';
+                trendValue.className = 'text-2xl font-bold text-gray-600';
+                trendIndicator.innerHTML = '<i class="fas fa-minus"></i>';
+                trendIndicator.className = 'ml-2 text-sm text-gray-500';
+            }
+            
+            // Update last updated time
+            document.getElementById('last-updated').textContent = `Last updated: ${moment().format('HH:mm:ss')}`;
+        }
+        
+        // Update charts with hourly data
+        function updateCharts(hourlyData) {
+            if (!hourlyData || !hourlyData.length) return;
+            
+            const labels = hourlyData.map(item => moment(item.hour * 1000).format('HH:00'));
+            const sentimentData = hourlyData.map(item => item.avg_sentiment);
+            const volumeData = hourlyData.map(item => item.message_count);
+            
+            // Update sentiment chart
+            sentimentChart.data.labels = labels;
+            sentimentChart.data.datasets[0].data = sentimentData;
+            sentimentChart.update();
+            
+            // Update volume chart
+            volumeChart.data.labels = labels;
+            volumeChart.data.datasets[0].data = volumeData;
+            volumeChart.update();
+        }
+        
+        // Render message element
+        function renderMessage(message) {
+            const sentimentClass = message.sentiment > 0.2 ? 'text-green-600' : 
+                                  message.sentiment < -0.2 ? 'text-red-600' : 'text-gray-600';
+            
+            const platformIcon = message.platform === 'Telegram' ? 'fa-paper-plane' : 'fa-discord';
+            const platformClass = message.platform === 'Telegram' ? 'text-blue-500' : 'text-purple-500';
+            
+            return `
+                <div class="p-4 hover:bg-gray-50">
+                    <div class="flex justify-between mb-1">
+                        <div class="flex items-center">
+                            <i class="fab ${platformIcon} ${platformClass} mr-2"></i>
+                            <span class="text-sm font-medium">${message.platform}</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="text-xs ${sentimentClass} font-medium">
+                                ${formatSentiment(message.sentiment)}
+                            </span>
+                            <span class="text-xs text-gray-500 ml-2">
+                                ${moment(message.timestamp * 1000).fromNow()}
+                            </span>
+                        </div>
+                    </div>
+                    <p class="text-gray-700">${escapeHtml(message.content)}</p>
+                </div>
+            `;
+        }
+        
+        // Escape HTML to prevent XSS
+        function escapeHtml(unsafe) {
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+        
+        // Load messages with pagination and filters
+        function loadMessages(page = 1) {
+            const messagesContainer = document.getElementById('messages-container');
+            messagesContainer.innerHTML = '<div class="p-4 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i> Loading messages...</div>';
+            
+            // Construct URL with parameters
+            let url = `/api/messages?page=${page}&per_page=10`;
+            if (currentFilters.platform) url += `&platform=${currentFilters.platform}`;
+            if (currentFilters.sentiment) url += `&sentiment=${currentFilters.sentiment}`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.messages || !data.messages.length) {
+                        messagesContainer.innerHTML = '<div class="p-4 text-center text-gray-500">No messages found</div>';
+                        return;
+                    }
+                    
+                    messagesContainer.innerHTML = data.messages.map(renderMessage).join('');
+                    
+                    // Update pagination
+                    currentPage = page;
+                    totalPages = Math.ceil(data.total / 10);
+                    
+                    document.getElementById('showing-info').textContent = 
+                        `Showing ${(page-1)*10+1}-${Math.min(page*10, data.total)} of ${data.total} messages`;
+                    
+                    document.getElementById('prev-page').disabled = page <= 1;
+                    document.getElementById('next-page').disabled = page >= totalPages;
+                })
+                .catch(error => {
+                    console.error('Error loading messages:', error);
+                    messagesContainer.innerHTML = '<div class="p-4 text-center text-red-500">Error loading messages. Please try again.</div>';
+                });
+        }
+        
+        // Initialize application when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            
+            // Load initial data
+            fetch('/api/initial-data')
+                .then(response => response.json())
+                .then(data => {
+                    updateStats(data.stats);
+                    updateCharts(data.hourlyData);
+                    
+                    // Populate messages
+                    const messagesContainer = document.getElementById('messages-container');
+                    if (data.messages && data.messages.length) {
+                        messagesContainer.innerHTML = data.messages.map(renderMessage).join('');
+                    } else {
+                        messagesContainer.innerHTML = '<div class="p-4 text-center text-gray-500">No messages found</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading initial data:', error);
+                });
+            
+            // Set up event listeners
+            document.getElementById('refresh-btn').addEventListener('click', function() {
+                fetch('/api/initial-data')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateStats(data.stats);
+                        updateCharts(data.hourlyData);
+                        loadMessages(1);
+                    });
+            });
+            
+            // Pagination
+            document.getElementById('prev-page').addEventListener('click', function() {
+                if (currentPage > 1) {
+                    loadMessages(currentPage - 1);
+                }
+            });
+            
+            document.getElementById('next-page').addEventListener('click', function() {
+                if (currentPage < totalPages) {
+                    loadMessages(currentPage + 1);
+                }
+            });
+            
+            // Filters
+            document.getElementById('platform-filter').addEventListener('change', function(e) {
+                currentFilters.platform = e.target.value;
+                loadMessages(1);
+            });
+            
+            document.getElementById('sentiment-filter').addEventListener('change', function(e) {
+                currentFilters.sentiment = e.target.value;
+                loadMessages(1);
+            });
+            
+            // Socket events
+            socket.on('connect', function() {
+                document.getElementById('status-indicator').innerHTML = 
+                    '<span class="h-3 w-3 rounded-full bg-green-500 mr-2 animate-pulse"></span><span>Live</span>';
+            });
+            
+            socket.on('disconnect', function() {
+                document.getElementById('status-indicator').innerHTML = 
+                    '<span class="h-3 w-3 rounded-full bg-red-500 mr-2"></span><span>Offline</span>';
+            });
+            
+            socket.on('new_message', function(message) {
+                // Update stats (simplified - in production you'd want to get full updated stats)
+                const totalMessages = parseInt(document.getElementById('total-messages').textContent.replace(/,/g, '')) + 1;
+                document.getElementById('total-messages').textContent = totalMessages.toLocaleString();
+                
+                if (message.platform === 'Telegram') {
+                    const telegramCount = parseInt(document.getElementById('telegram-count').textContent.split(' ')[0].replace(/,/g, '')) + 1;
+                    document.getElementById('telegram-count').textContent = `${telegramCount.toLocaleString()} Telegram`;
+                } else if (message.platform === 'Discord') {
+                    const discordCount = parseInt(document.getElementById('discord-count').textContent.split(' ')[0].replace(/,/g, '')) + 1;
+                    document.getElementById('discord-count').textContent = `${discordCount.toLocaleString()} Discord`;
+                }
+                
+                // If on first page with no filters, prepend new message
+                if (currentPage === 1 && !currentFilters.platform && !currentFilters.sentiment) {
+                    const messagesContainer = document.getElementById('messages-container');
+                    messagesContainer.insertAdjacentHTML('afterbegin', renderMessage(message));
+                    
+                    // Remove oldest message if more than 10
+                    if (messagesContainer.children.length > 10) {
+                        messagesContainer.lastElementChild.remove();
+                    }
+                }
+            });
+            
+            socket.on('trend_update', function(trend) {
+                // Update charts with new trend data
+                fetch('/api/initial-data')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateStats(data.stats);
+                        updateCharts(data.hourlyData);
+                    });
+                
+                // Display notification about trend
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 ${trend.type === 'positive' ? 'bg-green-600' : 'bg-red-600'} text-white p-4 rounded-lg shadow-lg z-50 animate-fade-in-out`;
+                notification.innerHTML = `
+                    <div class="flex items-start">
+                        <div class="mr-2">
+                            <i class="fas ${trend.type === 'positive' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'} text-xl"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-bold mb-1">${trend.type === 'positive' ? 'Bullish' : 'Bearish'} Trend Detected!</h4>
+                            <p class="text-sm">Confidence: ${trend.confidence}%</p>
+                            <p class="text-sm">Avg Sentiment: ${formatSentiment(trend.avg_sentiment)}</p>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(notification);
+                
+                // Remove notification after 5 seconds
+                setTimeout(() => {
+                    notification.classList.add('animate-fade-out');
+                    setTimeout(() => notification.remove(), 500);
+                }, 5000);
+            });
+        });
+    </script>
+    
+    <style>
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-10px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-10px); }
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        
+        .animate-fade-in-out {
+            animation: fadeInOut 5s ease-in-out;
+        }
+        
+        .animate-fade-out {
+            animation: fadeOut 0.5s ease-in-out;
+        }
+    </style>
+</body>
+</html>
